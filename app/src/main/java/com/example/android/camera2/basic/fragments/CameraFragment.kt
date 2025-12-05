@@ -158,16 +158,19 @@ class CameraFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         // Initialize gesture detector for double tap to switch camera
-        gestureDetector = GestureDetectorCompat(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent?): Boolean {
-                switchCamera()
-                return true
+        gestureDetector = GestureDetectorCompat(
+            requireContext(),
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    switchCamera()
+                    return true
+                }
             }
-        })
-
+        )
         // Set touch listener on view finder to detect double tap
         fragmentCameraBinding.viewFinder.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
+            true // Consume the event
         }
 
         // Get list of available cameras
@@ -252,56 +255,39 @@ class CameraFragment : Fragment() {
         session.setRepeatingRequest(captureRequest.build(), null, cameraHandler)
     }
 
-    /** Get list of available compatible cameras that support RAW format */
+    /** Get list of available compatible cameras */
     @SuppressLint("MissingPermission")
     private fun getAvailableCameras(): List<String> {
-        val availableCameras = mutableListOf<String>()
         val cameraManager = requireContext().getSystemService(Context.CAMERA_SERVICE) as CameraManager
-
         try {
-            val cameraIds = cameraManager.cameraIdList.filter {
+            return cameraManager.cameraIdList.filter {
                 val characteristics = cameraManager.getCameraCharacteristics(it)
                 val capabilities = characteristics.get(
                     CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
                 capabilities?.contains(
                     CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE) ?: false
             }
-
-            cameraIds.forEach { id ->
-                val characteristics = cameraManager.getCameraCharacteristics(id)
-                val capabilities = characteristics.get(
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: return@forEach
-                val outputFormats = characteristics.get(
-                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.outputFormats ?: return@forEach
-
-                // Only add cameras that support RAW format
-                if (capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) &&
-                    outputFormats.contains(ImageFormat.RAW_SENSOR)) {
-                    availableCameras.add(id)
-                }
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Error getting camera list", e)
         }
-
-        return availableCameras
+        return emptyList()
     }
 
     /** Switch to the next available camera */
     private fun switchCamera() {
-        if (availableCameras.isEmpty()) {
+        Log.d(TAG, "Attempting to switch camera")
+        if (availableCameras.size < 2) {
             Toast.makeText(requireContext(), "No other cameras available", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Move to next camera or wrap around to first
+        // Move to the next camera or wrap around to the first
         currentCameraIndex = (currentCameraIndex + 1) % availableCameras.size
         val newCameraId = availableCameras[currentCameraIndex]
 
         Log.d(TAG, "Switching to camera: $newCameraId")
-        Toast.makeText(requireContext(), "Switching camera...", Toast.LENGTH_SHORT).show()
 
-        // Close current camera
+        // Close the current camera
         try {
             if (::session.isInitialized) {
                 session.close()
@@ -316,55 +302,76 @@ class CameraFragment : Fragment() {
             Log.e(TAG, "Error closing camera", e)
         }
 
-        // Update camera ID in args
-        val navController = Navigation.findNavController(requireActivity(), R.id.fragment_container)
-        val currentDestination = navController.currentDestination
-        if (currentDestination != null) {
-            // Re-initialize camera with the new camera ID
-            lifecycleScope.launch {
-                initializeCameraWithId(newCameraId)
-            }
-        }
+        // Re-initialize the camera with the new ID
+        initializeCameraWithId(newCameraId)
     }
 
-    /** Initialize camera with specific camera ID */
-    private suspend fun initializeCameraWithId(cameraId: String) = lifecycleScope.launch(Dispatchers.Main) {
-        // Open the selected camera
+    /** Initialize camera with a specific camera ID */
+    private fun initializeCameraWithId(cameraId: String) = lifecycleScope.launch(Dispatchers.Main) {
         try {
+            val newCharacteristics = cameraManager.getCameraCharacteristics(cameraId)
+
+            // Update preview to match new camera
+            val previewSize = getPreviewOutputSize(
+                fragmentCameraBinding.viewFinder.display,
+                newCharacteristics,
+                SurfaceHolder::class.java
+            )
+            Log.d(TAG, "New preview size: $previewSize")
+            fragmentCameraBinding.viewFinder.setAspectRatio(
+                previewSize.width,
+                previewSize.height
+            )
+
+            // Update orientation listener for the new camera
+            relativeOrientation.removeObservers(viewLifecycleOwner)
+            relativeOrientation = OrientationLiveData(requireContext(), newCharacteristics).apply {
+                observe(viewLifecycleOwner, Observer { orientation ->
+                    Log.d(TAG, "Orientation changed: $orientation")
+                })
+            }
+
+            // Open the selected camera
             camera = openCamera(cameraManager, cameraId, cameraHandler)
 
-            // Initialize an image reader which will be used to capture still photos
+            // Get a list of supported formats and check if the requested format is supported.
+            val supportedFormats = newCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!.outputFormats
+            if (args.pixelFormat !in supportedFormats) {
+                Log.e(TAG, "Camera $cameraId does not support format ${args.pixelFormat}")
+                Toast.makeText(requireContext(), "New camera does not support this format", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            // Initialize an image reader for still photos
             Log.d(TAG, "Initializing image reader for camera $cameraId")
-            val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId)
-            val size = cameraCharacteristics.get(
+            val size = newCharacteristics.get(
                 CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-            )!!
-                .getOutputSizes(args.pixelFormat).maxByOrNull { it.height * it.width }!!
+            )!!.getOutputSizes(args.pixelFormat).maxByOrNull { it.height * it.width }!!
             imageReader = ImageReader.newInstance(
                 size.width, size.height, args.pixelFormat, IMAGE_BUFFER_SIZE
             )
 
-            // Creates list of Surfaces where the camera will output frames
+            // Create a list of surfaces for camera output
             val targets = listOf(fragmentCameraBinding.viewFinder.holder.surface, imageReader.surface)
 
-            // Start a capture session using our open camera and list of Surfaces where frames will go
+            // Start a capture session
             session = createCaptureSession(camera, targets, cameraHandler)
 
             val captureRequest = camera.createCaptureRequest(
                 CameraDevice.TEMPLATE_PREVIEW
             ).apply { addTarget(fragmentCameraBinding.viewFinder.holder.surface) }
 
-            // This will keep sending the capture request as frequently as possible until the
-            // session is torn down or session.stopRepeating() is called
+            // Start repeating requests for preview
             session.setRepeatingRequest(captureRequest.build(), null, cameraHandler)
 
-            Toast.makeText(requireContext(), "Camera switched successfully", Toast.LENGTH_SHORT).show()
             Log.d(TAG, "Camera switched to: $cameraId")
+
         } catch (e: Exception) {
             Log.e(TAG, "Error switching camera", e)
             Toast.makeText(requireContext(), "Error switching camera", Toast.LENGTH_SHORT).show()
         }
     }
+
 
     /** Opens the camera and returns the opened device (as the result of the suspend coroutine) */
     @SuppressLint("MissingPermission")

@@ -116,9 +116,7 @@ class SelectorFragment : Fragment() {
                 CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) &&
                 outputFormats.contains(ImageFormat.RAW_SENSOR)) {
             availableCameras.add(FormatItem(
-                    "Back Camera - Save as RAW", id, ImageFormat.RAW_SENSOR, false))
-            availableCameras.add(FormatItem(
-                    "Back Camera - Save as JPEG", id, ImageFormat.RAW_SENSOR, true))
+                    "后置摄像头", id, ImageFormat.RAW_SENSOR, true))
         }
 
                 // Return front camera that support RAW capability
@@ -126,9 +124,7 @@ class SelectorFragment : Fragment() {
                 CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) &&
                 outputFormats.contains(ImageFormat.RAW_SENSOR)) {
             availableCameras.add(FormatItem(
-                    "Front Camera - Save as RAW", id, ImageFormat.RAW_SENSOR, false))
-            availableCameras.add(FormatItem(
-                    "Front Camera - Save as JPEG", id, ImageFormat.RAW_SENSOR, true))
+                    "前置摄像头", id, ImageFormat.RAW_SENSOR, true))
         }
             }
 
