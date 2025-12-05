@@ -33,6 +33,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.reilandeubank.unprocess.utils.GenericListAdapter
 import com.reilandeubank.unprocess.R
+import android.view.GestureDetector
+import androidx.core.view.GestureDetectorCompat
 
 class SelectorFragment : Fragment() {
 
@@ -114,9 +116,19 @@ class SelectorFragment : Fragment() {
                 CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) &&
                 outputFormats.contains(ImageFormat.RAW_SENSOR)) {
             availableCameras.add(FormatItem(
-                    "Save as RAW", id, ImageFormat.RAW_SENSOR, false))
+                    "Back Camera - Save as RAW", id, ImageFormat.RAW_SENSOR, false))
             availableCameras.add(FormatItem(
-                    "Save as JPEG", id, ImageFormat.RAW_SENSOR, true))
+                    "Back Camera - Save as JPEG", id, ImageFormat.RAW_SENSOR, true))
+        }
+
+                // Return front camera that support RAW capability
+                if (orientation == "Front" && capabilities.contains(
+                CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) &&
+                outputFormats.contains(ImageFormat.RAW_SENSOR)) {
+            availableCameras.add(FormatItem(
+                    "Front Camera - Save as RAW", id, ImageFormat.RAW_SENSOR, false))
+            availableCameras.add(FormatItem(
+                    "Front Camera - Save as JPEG", id, ImageFormat.RAW_SENSOR, true))
         }
             }
 

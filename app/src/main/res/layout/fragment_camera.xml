@@ -30,13 +30,4 @@
         android:layout_height="match_parent"
         android:foreground="@android:color/transparent" />
 
-    <ImageButton
-        android:id="@+id/capture_button"
-        android:layout_width="96dp"
-        android:layout_height="96dp"
-        android:layout_gravity="bottom|center"
-        android:scaleType="fitCenter"
-        android:background="@drawable/ic_shutter"
-        android:contentDescription="@string/capture" />
-
 </FrameLayout>
